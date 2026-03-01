@@ -9,6 +9,16 @@
 #include <Arduino.h>
 #include <SensirionI2cScd4x.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <ThingSpeak.h>
+
+#include "secret.h"
+
+// ThingSpeak channel details
+unsigned long myChannelNumber = CHANNEL_ID;
+const char* myWriteAPIKey = API_KEY;
+
+WiFiClient client;
 
 SensirionI2cScd4x scd41_sensor;
 #define SD41_I2C_SDA 7
@@ -38,36 +48,6 @@ uint16_t co2Concentration = 0;
 float temperature = 0.0;
 float relativeHumidity = 0.0;
 
-void scan() {
-  byte error, address;
-  int nDevices;
-  Serial.println("Scanning...");
-  nDevices = 0;
-  for (address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-    if (error == 0) {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16) {
-        Serial.print("0");
-      }
-      Serial.println(address, HEX);
-      nDevices++;
-    } else if (error == 4) {
-      Serial.print("Unknow error at address 0x");
-      if (address < 16) {
-        Serial.print("0");
-      }
-      Serial.println(address, HEX);
-    }
-  }
-  if (nDevices == 0) {
-    Serial.println("No I2C devices found\n");
-  } else {
-    Serial.println("done\n");
-  }
-  delay(5000);
-}
 void PrintUint64(uint64_t& value) {
   Serial.print("0x");
   Serial.print((uint32_t)(value >> 32), HEX);
@@ -129,13 +109,37 @@ void initSCD41(void) {
   //
 }
 
+void ConnectWifi() {
+  WiFi.mode(WIFI_STA);
+  Serial.println("Connecting to WiFi network: " + String(WIFI_SSID));
+#ifdef ST7789_DISPLAY
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextColor(ST77XX_GREEN);
+
+  tft.setCursor(0, 0);
+  tft.println("Connecting to WiFi network: " + String(WIFI_SSID));
+#endif
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+#ifdef ST7789_DISPLAY
+
+    tft.print(".");
+#endif
+  }
+  Serial.println("\nWiFi connected");
+
+#ifdef ST7789_DISPLAY
+  tft.print("\n Wifi Connected");
+#endif
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting Arduino BLE Client application...");
   Serial0.begin(9600);  //For PM Sensor
-  Wire.begin(SD41_I2C_SDA, SD41_I2C_SCL);
-  initSCD41();
-
 
 #ifdef ST7789_DISPLAY
   tft.init(240, 320);
@@ -144,10 +148,17 @@ void setup() {
   tft.setCursor(0, 0);
   tft.setTextColor(ST77XX_BLUE);
   tft.setTextWrap(true);
-  tft.setTextSize(4);
-  tft.print("Starting ENV..");
+  tft.setTextSize(2);
+  tft.print("Starting Env Monitor..");
 
 #endif
+
+  Wire.begin(SD41_I2C_SDA, SD41_I2C_SCL);
+  initSCD41();
+  ConnectWifi();
+  ThingSpeak.begin(client);  // Initialize ThingSpeak
+
+
 
 }  // End of setup.
 
@@ -157,7 +168,7 @@ void loop() {
   //
   // Wake the sensor up from sleep mode.
   //
-  delay(5000);
+  delay(10000);
   error = scd41_sensor.getDataReadyStatus(dataReady);
   if (error != NO_ERROR) {
     Serial.print("Error trying to execute getDataReadyStatus(): ");
@@ -197,6 +208,20 @@ void loop() {
   Serial.println();
   Serial.print("Relative Humidity [RH]: ");
   Serial.print(relativeHumidity);
+
+  // set the fields with the values
+  ThingSpeak.setField(1, co2Concentration);
+  ThingSpeak.setField(2, temperature);
+  ThingSpeak.setField(3, relativeHumidity);
+
+  // write to the ThingSpeak channel
+  int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+  if (x == 200) {
+    Serial.println("Channel update successful.");
+  } else {
+    Serial.println("Problem updating channel. HTTP error code " + String(x));
+  }
+
   display();
 }  // End of loop
 
