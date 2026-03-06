@@ -11,9 +11,11 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <ThingSpeak.h>
-
+#include "PMS.h"
 #include "secret.h"
 
+PMS pms(Serial0);
+PMS::DATA data;
 // ThingSpeak channel details
 unsigned long myChannelNumber = CHANNEL_ID;
 const char* myWriteAPIKey = API_KEY;
@@ -140,6 +142,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Starting Arduino BLE Client application...");
   Serial0.begin(9600);  //For PM Sensor
+  pms.passiveMode();    // Switch to passive mode
 
 #ifdef ST7789_DISPLAY
   tft.init(240, 320);
@@ -164,11 +167,29 @@ void setup() {
 
 void loop() {
   bool dataReady = false;
-
+  pms.wakeUp();
   //
   // Wake the sensor up from sleep mode.
   //
   delay(10000);
+  pms.requestRead();
+  delay(1000);
+  if (pms.readUntil(data)) {
+    Serial.print("PM 1.0 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_1_0);
+
+    Serial.print("PM 2.5 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_2_5);
+
+    Serial.print("PM 10.0 (ug/m3): ");
+    Serial.println(data.PM_AE_UG_10_0);
+
+    Serial.println();
+  } else {
+    Serial.println("No PMS data.");
+  }
+
+
   error = scd41_sensor.getDataReadyStatus(dataReady);
   if (error != NO_ERROR) {
     Serial.print("Error trying to execute getDataReadyStatus(): ");
@@ -213,7 +234,9 @@ void loop() {
   ThingSpeak.setField(1, co2Concentration);
   ThingSpeak.setField(2, temperature);
   ThingSpeak.setField(3, relativeHumidity);
-
+  ThingSpeak.setField(4, data.PM_AE_UG_1_0);
+  ThingSpeak.setField(5, data.PM_AE_UG_2_5);
+  ThingSpeak.setField(6, data.PM_AE_UG_10_0);
   // write to the ThingSpeak channel
   int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
   if (x == 200) {
@@ -242,6 +265,13 @@ void display() {
   tft.print("C");
   tft.println(" ");
   tft.print("[RH]: ");
-  tft.print(relativeHumidity);
+  tft.println(relativeHumidity);
+  tft.print("PM 1.0: ");
+  tft.println(data.PM_AE_UG_1_0);
+  tft.print("PM 2.5: ");
+  tft.println(data.PM_AE_UG_2_5);
+  tft.print("PM 10.0: ");
+  tft.println(data.PM_AE_UG_10_0);
+
 #endif
 }
